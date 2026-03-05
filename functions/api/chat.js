@@ -87,7 +87,6 @@ export async function onRequestPost(context) {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop();
@@ -103,10 +102,8 @@ export async function onRequestPost(context) {
                     try {
                         const parsed = JSON.parse(raw);
                         const delta = parsed.choices?.[0]?.delta;
-                        if (delta) {
-                            await writer.write(encoder.encode(`data: ${JSON.stringify(delta)}\n\n`));
-                        }
-                    } catch { /* skip partial lines */ }
+                        if (delta) await writer.write(encoder.encode(`data: ${JSON.stringify(delta)}\n\n`));
+                    } catch { }
                 }
             }
             await writer.close();
@@ -115,8 +112,6 @@ export async function onRequestPost(context) {
         return new Response(readable, {
             headers: {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type',
@@ -125,12 +120,14 @@ export async function onRequestPost(context) {
     } catch (error) {
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+            }
         });
     }
 }
 
-// Handle CORS preflight
 export async function onRequestOptions() {
     return new Response(null, {
         headers: {

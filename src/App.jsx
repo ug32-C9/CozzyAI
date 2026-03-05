@@ -1,158 +1,253 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import Sidebar from './components/Sidebar'
-import ChatWindow from './components/ChatWindow'
-import InputArea from './components/InputArea'
-import WelcomeScreen from './components/WelcomeScreen'
-import ErrorBanner from './components/ErrorBanner'
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { marked } from 'marked';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/github-dark.css';
+import './App.css';
 
-export default function App() {
+import Sidebar from './components/Sidebar';
+import ChatWindow from './components/ChatWindow';
+import InputArea from './components/InputArea';
+import ErrorBanner from './components/ErrorBanner';
+
+const SUGGESTIONS = [
+    { icon: '🔍', title: 'Reverse Engineering', prompt: 'Help me understand x64 assembly code for a decryption loop.' },
+    { icon: '🎓', title: 'Academic Research', prompt: 'Explain the concept of quantum entanglement in simple terms.' },
+    { icon: '💻', title: 'Vibe Coding', prompt: 'Create a beautiful login page using HTML and CSS with glassmorphism.' },
+    { icon: '🎨', title: 'Creative Planning', prompt: 'Plan a 5-day road trip through Switzerland for a photographer.' },
+];
+
+marked.setOptions({
+    breaks: true,
+    gfm: true,
+    highlight: (code, lang) => {
+        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+        return hljs.highlight(code, { language }).value;
+    }
+});
+
+const renderer = new marked.Renderer();
+renderer.code = ({ text, lang }) => {
+    const language = lang || 'text';
+    const highlighted = hljs.getLanguage(language)
+        ? hljs.highlight(text, { language }).value
+        : hljs.highlightAuto(text).value;
+    return `<pre><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-code="${encodeURIComponent(text)}">Copy</button></div><code class="hljs language-${language}">${highlighted}</code></pre>`;
+};
+marked.use({ renderer });
+
+function App() {
     const [conversations, setConversations] = useState(() => {
-        const saved = localStorage.getItem('cozzy_chats')
-        return saved ? JSON.parse(saved) : []
-    })
-    const [activeId, setActiveId] = useState(null)
-    const [messages, setMessages] = useState([])
-    const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState(null)
-    const abortControllerRef = useRef(null)
+        return JSON.parse(localStorage.getItem('cozzy_chats') || '[]');
+    });
+    const [activeId, setActiveId] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const abortControllerRef = useRef(null);
+    const messagesEndRef = useRef(null);
 
-    // Save to localStorage
+    const activeConversation = conversations.find(c => c.id === activeId);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
     useEffect(() => {
-        localStorage.setItem('cozzy_chats', JSON.stringify(conversations))
-    }, [conversations])
+        scrollToBottom();
+    }, [messages]);
 
-    const handleNewChat = useCallback(() => {
-        setActiveId(null)
-        setMessages([])
-        setError(null)
-        if (abortControllerRef.current) abortControllerRef.current.abort()
-    }, [])
+    const saveToLocalStorage = useCallback((newConversations) => {
+        localStorage.setItem('cozzy_chats', JSON.stringify(newConversations));
+        setConversations(newConversations);
+    }, []);
 
-    const handleSelectConv = useCallback((id) => {
-        const conv = conversations.find(c => c.id === id)
+    const createNewChat = () => {
+        setActiveId(null);
+        setMessages([]);
+        setError(null);
+    };
+
+    const loadConversation = (id) => {
+        const conv = conversations.find(c => c.id === id);
         if (conv) {
-            setActiveId(id)
-            setMessages(conv.messages)
-            setError(null)
+            setActiveId(id);
+            setMessages([...conv.messages]);
+            setError(null);
         }
-    }, [conversations])
+    };
 
-    const handleDeleteConv = useCallback((id) => {
-        setConversations(prev => prev.filter(c => c.id !== id))
-        if (activeId === id) handleNewChat()
-    }, [activeId, handleNewChat])
+    const deleteConversation = (id) => {
+        const newConversations = conversations.filter(c => c.id !== id);
+        saveToLocalStorage(newConversations);
+        if (activeId === id) {
+            createNewChat();
+        }
+    };
 
-    const handleSend = async (text) => {
-        if (!text.trim() || isLoading) return
-        setIsLoading(true)
-        setError(null)
+    const sendMessage = async (overrideText) => {
+        const text = overrideText || document.getElementById('chat-textarea').value.trim();
+        if (!text || isLoading) return;
 
-        const userMsg = { role: 'user', content: text, id: Date.now().toString() }
-        const newMessages = [...messages, userMsg]
-        setMessages(newMessages)
+        // Clear input
+        const textarea = document.getElementById('chat-textarea');
+        if (textarea) textarea.value = '';
 
-        const aiMsgId = (Date.now() + 1).toString()
-        const aiPlaceholder = { role: 'assistant', content: '', thinking: '', isStreaming: true, id: aiMsgId }
-        setMessages(prev => [...prev, aiPlaceholder])
+        setIsLoading(true);
+        setError(null);
+
+        // Hide welcome, show chat
+        const newUserMsg = { role: 'user', content: text };
+        const updatedMessages = [...messages, newUserMsg];
+        setMessages(updatedMessages);
+
+        const aiId = Date.now().toString();
+        const aiMsg = { id: aiId, role: 'assistant', content: '', thinking: '', streaming: true };
+        const messagesWithAi = [...updatedMessages, aiMsg];
+        setMessages(messagesWithAi);
 
         try {
-            abortControllerRef.current = new AbortController()
-            const response = await fetch('/api/chat', {
+            abortControllerRef.current = new AbortController();
+
+            const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: newMessages.map(({ role, content }) => ({ role, content })) }),
+                body: JSON.stringify({ messages: updatedMessages }),
                 signal: abortControllerRef.current.signal
-            })
+            });
 
-            if (!response.ok) throw new Error('Failed to connect to AI')
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-            const reader = response.body.getReader()
-            const decoder = new TextDecoder()
-            let finalContent = ''
-            let finalThinking = ''
-            let buffer = ''
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let content = '', thinking = '', buffer = '';
 
             while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split('\n')
-                buffer = lines.pop()
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
 
                 for (const line of lines) {
-                    const trimmed = line.trim()
-                    if (!trimmed.startsWith('data:')) continue
-                    const raw = trimmed.replace(/^data:\s*/, '').trim()
-                    if (raw === '[DONE]') continue
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data:')) continue;
+
+                    const raw = trimmed.replace(/^data:\s*/, '').trim();
+                    if (raw === '[DONE]') continue;
 
                     try {
-                        const data = JSON.parse(raw)
-                        if (data.content !== undefined) finalContent += data.content
-                        if (data.thinking !== undefined) finalThinking += data.thinking
+                        const delta = JSON.parse(raw);
+                        if (delta.content) content += delta.content;
+                        if (delta.thinking) thinking += delta.thinking;
 
-                        setMessages(prev => prev.map(m =>
-                            m.id === aiMsgId ? { ...m, content: finalContent, thinking: finalThinking } : m
-                        ))
-                    } catch (e) { /* skip partial lines */ }
+                        setMessages(prev => {
+                            const newMessages = [...prev];
+                            const lastMsg = newMessages[newMessages.length - 1];
+                            if (lastMsg && lastMsg.id === aiId) {
+                                lastMsg.content = content;
+                                lastMsg.thinking = thinking;
+                                lastMsg.streaming = true;
+                            }
+                            return newMessages;
+                        });
+                    } catch { }
                 }
             }
 
-            // Finalize message and update/create conversation
-            setMessages(prev => prev.map(m =>
-                m.id === aiMsgId ? { ...m, isStreaming: false, content: finalContent, thinking: finalThinking } : m
-            ))
-
-            const updatedMessages = [...newMessages, { role: 'assistant', content: finalContent, thinking: finalThinking, id: aiMsgId }]
-
-            setConversations(prev => {
-                if (!activeId) {
-                    const id = Date.now().toString()
-                    setActiveId(id)
-                    return [{ id, title: text.slice(0, 50), messages: updatedMessages, updatedAt: new Date().toISOString() }, ...prev]
-                } else {
-                    return prev.map(c => c.id === activeId ? { ...c, messages: updatedMessages, updatedAt: new Date().toISOString() } : c)
+            // Final update
+            setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMsg = newMessages[newMessages.length - 1];
+                if (lastMsg && lastMsg.id === aiId) {
+                    lastMsg.content = content;
+                    lastMsg.thinking = thinking;
+                    lastMsg.streaming = false;
                 }
-            })
+                return newMessages;
+            });
 
-        } catch (err) {
-            if (err.name !== 'AbortError') setError(err.message)
-            setMessages(prev => prev.filter(m => m.id !== aiMsgId))
+            // Save conversation
+            const finalMessages = [...updatedMessages, { role: 'assistant', content, thinking }];
+
+            if (!activeId) {
+                const newId = Date.now().toString();
+                const newConv = {
+                    id: newId,
+                    title: text.slice(0, 40),
+                    messages: finalMessages,
+                    updatedAt: new Date().toISOString()
+                };
+                const newConversations = [newConv, ...conversations];
+                saveToLocalStorage(newConversations);
+                setActiveId(newId);
+            } else {
+                const newConversations = conversations.map(c =>
+                    c.id === activeId
+                        ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString() }
+                        : c
+                );
+                saveToLocalStorage(newConversations);
+            }
+
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                setError(e.message);
+            }
         } finally {
-            setIsLoading(false)
-            abortControllerRef.current = null
+            setIsLoading(false);
+            abortControllerRef.current = null;
         }
-    }
+    };
 
-    const handleStop = () => {
-        if (abortControllerRef.current) abortControllerRef.current.abort()
-    }
+    const stopGeneration = () => {
+        abortControllerRef.current?.abort();
+    };
+
+    const copyCode = (btn) => {
+        navigator.clipboard.writeText(decodeURIComponent(btn.dataset.code)).then(() => {
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 2000);
+        });
+    };
+
+    const toggleThinking = (header) => {
+        const content = header.nextElementSibling;
+        const chevron = header.querySelector('.thinking-chevron');
+        if (content) {
+            content.style.display = content.style.display === 'none' ? 'block' : 'none';
+            chevron?.classList.toggle('open');
+        }
+    };
 
     return (
         <div className="app-shell">
             <Sidebar
                 conversations={conversations}
                 activeId={activeId}
-                onSelect={handleSelectConv}
-                onDelete={handleDeleteConv}
-                onNewChat={handleNewChat}
+                onNewChat={createNewChat}
+                onLoadConversation={loadConversation}
+                onDeleteConversation={deleteConversation}
             />
             <main className="main-area">
-                {messages.length === 0 ? (
-                    <WelcomeScreen onSuggestion={handleSend} />
-                ) : (
-                    <ChatWindow messages={messages} />
-                )}
-
-                <div className="input-section">
-                    <ErrorBanner error={error} />
-                    <InputArea
-                        onSend={handleSend}
-                        onStop={handleStop}
-                        isLoading={isLoading}
-                    />
-                </div>
+                <ChatWindow
+                    messages={messages}
+                    suggestions={SUGGESTIONS}
+                    onSuggestionClick={sendMessage}
+                    showWelcome={messages.length === 0}
+                    messagesEndRef={messagesEndRef}
+                    onCopyCode={copyCode}
+                    onToggleThinking={toggleThinking}
+                />
+                <ErrorBanner error={error} />
+                <InputArea
+                    onSend={sendMessage}
+                    onStop={stopGeneration}
+                    isLoading={isLoading}
+                />
             </main>
         </div>
-    )
+    );
 }
+
+export default App;

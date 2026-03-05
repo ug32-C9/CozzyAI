@@ -1,11 +1,13 @@
-import React from 'react'
+import React from 'react';
 
-export default function ErrorBanner({ error }) {
-    if (!error) return null
+const ErrorBanner = ({ error }) => {
+    if (!error) return null;
 
     return (
         <div className="error-banner">
-            ⚠ {error}
+            ⚠ <span>{error}</span>
         </div>
-    )
-}
+    );
+};
+
+export default ErrorBanner;

@@ -15,6 +15,5 @@ export const sendChat = async (messages, signal) => {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to connect to AI service');
     }
-
     return response.body;
 };

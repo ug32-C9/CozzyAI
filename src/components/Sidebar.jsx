@@ -1,9 +1,6 @@
-import React from 'react'
+import React from 'react';
 
-export default function Sidebar({ conversations, activeId, onSelect, onDelete, onNewChat }) {
-    // Sort by date
-    const sorted = [...conversations].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-
+const Sidebar = ({ conversations, activeId, onNewChat, onLoadConversation, onDeleteConversation }) => {
     return (
         <aside className="sidebar">
             <div className="sidebar-header">
@@ -11,31 +8,31 @@ export default function Sidebar({ conversations, activeId, onSelect, onDelete, o
                     <div className="logo-icon">🔥</div>
                     <span className="logo-text">CozzyAI</span>
                 </div>
-                <button onClick={onNewChat} className="new-chat-btn">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path d="M7 1V13M1 7H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <button className="new-chat-btn" onClick={onNewChat}>
+                    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                        <path d="M7.5 1v13M1 7.5h13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </svg>
                     New chat
                 </button>
             </div>
 
             <div className="sidebar-conversations">
-                {sorted.length === 0 ? (
-                    <div style={{ padding: '20px', color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center' }}>
-                        No recent chats
-                    </div>
+                {conversations.length === 0 ? (
+                    <div className="no-history">No history</div>
                 ) : (
-                    sorted.map(c => (
+                    conversations.map(conv => (
                         <div
-                            key={c.id}
-                            className={`conv-item ${c.id === activeId ? 'active' : ''}`}
-                            onClick={() => onSelect(c.id)}
+                            key={conv.id}
+                            className={`conv-item ${conv.id === activeId ? 'active' : ''}`}
+                            onClick={() => onLoadConversation(conv.id)}
                         >
-                            <span className="conv-title">{c.title}</span>
+                            <span className="conv-title">{conv.title}</span>
                             <button
                                 className="conv-delete"
-                                onClick={(e) => { e.stopPropagation(); onDelete(c.id); }}
-                                title="Delete Chat"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteConversation(conv.id);
+                                }}
                             >
                                 ✕
                             </button>
@@ -54,5 +51,7 @@ export default function Sidebar({ conversations, activeId, onSelect, onDelete, o
                 </div>
             </div>
         </aside>
-    )
-}
+    );
+};
+
+export default Sidebar;
